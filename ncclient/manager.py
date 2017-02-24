@@ -142,9 +142,37 @@ def connect_ioproc(*args, **kwds):
 
     return Manager(session, device_handler, **kwds)
 
+def connect_tcp(*args, **kwds):
+    """
+    Initialize a :class:`Manager` over the TCP transport. 
+    For documentation of arguments see :meth:`ncclient.transport.SSHSession.connect`.
+    """
+    import_string = 'ncclient.transport.third_party.cisco.tcp'
+    third_party_import = __import__(import_string, fromlist=['TCPSession'])
+
+    if "device_params" in kwds:
+        device_params = kwds["device_params"]
+        del kwds["device_params"]
+    else:
+        device_params = None
+
+    device_handler = make_device_handler(device_params)
+    global VENDOR_OPERATIONS
+    VENDOR_OPERATIONS.update(device_handler.add_additional_operations())
+    session = third_party_import.TCPSession(device_handler)
+    session.connect(*args, **kwds)
+    return Manager(session, device_handler, **kwds)
 
 def connect(*args, **kwds):
     if "host" in kwds:
+        try:
+            if kwds['transport'].lower() == 'tcp':
+                # Delete transport as it's no longer needed
+                del kwds['transport']
+                return connect_tcp(*args, **kwds)
+        except KeyError:
+            pass
+
         host = kwds["host"]
         device_params = kwds.get('device_params', {})
         if host == 'localhost' and device_params.get('name') == 'junos' \
