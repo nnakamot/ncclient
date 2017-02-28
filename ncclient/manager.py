@@ -23,6 +23,7 @@ from ncclient import operations
 from ncclient import transport
 import six
 import logging
+import getpass
 
 from ncclient.xml_ import *
 
@@ -160,24 +161,26 @@ def connect_tcp(*args, **kwds):
     global VENDOR_OPERATIONS
     VENDOR_OPERATIONS.update(device_handler.add_additional_operations())
     session = third_party_import.TCPSession(device_handler)
-    session.connect(*args, **kwds)
+    if kwds.get('password') is None:
+        # Try to get password from terminal if not given
+        passwd = getpass.getpass('Enter password: ')
+    else:
+        passwd = kwds.get('password')
+    session.connect(kwds.get('host'), kwds.get('port'),
+                    kwds.get('username'), passwd, kwds.get('timeout'))
     return Manager(session, device_handler, **kwds)
 
 def connect(*args, **kwds):
     if "host" in kwds:
-        try:
-            if kwds['transport'].lower() == 'tcp':
-                # Delete transport as it's no longer needed
-                del kwds['transport']
-                return connect_tcp(*args, **kwds)
-        except KeyError:
-            pass
-
         host = kwds["host"]
         device_params = kwds.get('device_params', {})
         if host == 'localhost' and device_params.get('name') == 'junos' \
                 and device_params.get('local'):
             return connect_ioproc(*args, **kwds)
+        elif device_params.get('transport') == 'tcp' \
+                and device_params.get('name') == 'iosxr':
+            return connect_tcp(*args, **kwds)
+
         else:
             return connect_ssh(*args, **kwds)
 

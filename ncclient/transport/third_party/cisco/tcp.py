@@ -50,7 +50,7 @@ class TCPSession(SSHSession):
         self._socket.close()
         self._connected = False
 
-    def connect(self, host, port, timeout=None):
+    def connect(self, host, port, username, password, timeout=None):
         """
         Connect via TCP and initialize the session.
 
@@ -82,10 +82,19 @@ class TCPSession(SSHSession):
             raise TransportError("Could not open socket to %s:%s" % (host, port))
 
         self._socket = sock
+        if not self._auth_user(username, password):
+            logger.error("Could not authenticate user '%s'" % username)
+            raise AuthenticationError("Failed to authenticate the client")
+
         self._connected = True
         self._post_connect()
         logger.debug("Connected to the host")
         return
+
+    def _auth_user(self, username, password):
+        sock = self._socket
+        return True
+
 
     def run(self):
         sock = self._socket
@@ -108,11 +117,15 @@ class TCPSession(SSHSession):
                     if data:
                         self._buffer.write(data)
                         if self._server_capabilities:
-                            if ('urn:ietf:params:netconf:base:1.1' in self._server_capabilities and 
-                                'urn:ietf:params:netconf:base:1.1' in self._client_capabilities): 
+                            if ('urn:ietf:params:netconf:base:1.1' in \
+                                    self._server_capabilities and \
+                                    'urn:ietf:params:netconf:base:1.1' in \
+                                    self._client_capabilities): 
                                 self._parse11()
-                            elif ('urn:ietf:params:netconf:base:1.0' in self._server_capabilities or 
-                                  'urn:ietf:params:netconf:base:1.0' in self._client_capabilities):
+                            elif ('urn:ietf:params:netconf:base:1.0' in \
+                                    self._server_capabilities or \
+                                    'urn:ietf:params:netconf:base:1.0' in \
+                                    self._client_capabilities):
                                 self._parse10()
                             else:
                                 raise Exception
@@ -125,23 +138,29 @@ class TCPSession(SSHSession):
                     data = q.get()
                     try:
                         # send a HELLO msg using v1.0 EOM markers.
-                        validated_element(data, tags='{urn:ietf:params:xml:ns:netconf:base:1.0}hello')
+                        validated_element(data,
+                        tags='{urn:ietf:params:xml:ns:netconf:base:1.0}hello')
                         data = "%s%s"%(data, MSG_DELIM)
                     except XMLError:
                         # this is not a HELLO msg
                         # we publish v1.1 support
-                        if 'urn:ietf:params:netconf:base:1.1' in self._client_capabilities:
+                        if 'urn:ietf:params:netconf:base:1.1' in \
+                                self._client_capabilities:
                             if self._server_capabilities:
-                                if 'urn:ietf:params:netconf:base:1.1' in self._server_capabilities:
+                                if 'urn:ietf:params:netconf:base:1.1' in \
+                                        self._server_capabilities:
                                     # send using v1.1 chunked framing
-                                    data = "%s%s%s"%(start_delim(len(data)), data, END_DELIM)
-                                elif 'urn:ietf:params:netconf:base:1.0' in self._server_capabilities:
+                                    data = "%s%s%s"%(start_delim(len(data)),
+                                            data, END_DELIM)
+                                elif 'urn:ietf:params:netconf:base:1.0' in \
+                                        self._server_capabilities:
                                     # send using v1.0 EOM markers
                                     data = "%s%s"%(data, MSG_DELIM)
                                 else:
                                     raise Exception
                             else:
-                                logger.debug('HELLO msg was sent, but server capabilities are still not known')
+                                logger.debug('HELLO msg was sent, but server '
+                                        'capabilities are still not known')
                                 raise Exception
                         # we publish only v1.0 support
                         else:
@@ -152,7 +171,8 @@ class TCPSession(SSHSession):
                         while data:
                             n = sock.send(data)
                             if n <= 0:
-                                raise SessionCloseError(self._buffer.getvalue(), data)
+                                raise SessionCloseError(self._buffer.getvalue(),
+                                    data)
                             data = data[n:]
         except Exception as e:
             logger.debug("Broke out of main loop, error=%r", e)
