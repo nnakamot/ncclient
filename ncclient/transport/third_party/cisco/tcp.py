@@ -23,9 +23,10 @@ from ncclient.transport.errors import SessionCloseError, TransportError
 from ncclient.xml_ import *
 
 logger = logging.getLogger("ncclient.transport.third_party.cisco.tcp")
-logger.setLevel(logging.WARNING)
+#logger.setLevel(logging.WARNING)
 
-BUF_SIZE = 4096
+BUF_SIZE = 4086
+
 # v1.0: RFC 4742
 MSG_DELIM = "]]>]]>"
 # v1.1: RFC 6242
@@ -34,7 +35,9 @@ TICK = 0.1
 
 '''
 Example:
-with manager.connect(host="localhost", port=10, transport="tcp") as m:
+with manager.connect(host="<host address>", port=10, 
+                     username="<user>", password="<passwd>",
+                     device_params = {'name':'iosxr', 'transport':'tcp'}) as m:
     c = m.get_config(source='running').data_xml
         print c
 '''
@@ -92,8 +95,33 @@ class TCPSession(SSHSession):
         return
 
     def _auth_user(self, username, password):
+        """
+        Autnericate user by following username/password prompt returned from 
+        the server.
+        """
         sock = self._socket
-        return True
+        # Receive username prompt
+        logger.debug("Waiting for username prompt.")
+        data = sock.recv(BUF_SIZE)
+        if data and 'Username:' in data:
+            # Send username 
+            n = sock.send(username + '\n')
+            if n <= 0:
+                raise SessionCloseError()
+            # Receive password prompt
+            logger.debug("Waiting for password prompt.")
+            data = sock.recv(BUF_SIZE)
+            if data and 'Password:' in data:
+                # Send password
+                n = sock.send(password + '\n')
+                if n <= 0:
+                    raise SessionCloseError()
+                logger.debug("Username and password were sent to the server.")
+                return True
+            else:
+                raise SessionCloseError()
+        else:
+            raise SessionCloseError()
 
 
     def run(self):
@@ -113,8 +141,10 @@ class TCPSession(SSHSession):
                 """
                 r, w, e = select([sock], [], [], TICK)
                 if r:
+                    logger.debug("Receiving message")
                     data = sock.recv(BUF_SIZE)
                     if data:
+                        logger.debug("Message received: %s", data)
                         self._buffer.write(data)
                         if self._server_capabilities:
                             if ('urn:ietf:params:netconf:base:1.1' in \
